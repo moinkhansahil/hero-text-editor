@@ -1,0 +1,295 @@
+        import wx
+from gtts import gTTS
+from playsound import playsound
+import os
+import threading
+from googletrans import Translator
+
+class UrduTextEditor(wx.Frame):
+    def __init__(self, *args, **kwargs):
+        super(UrduTextEditor, self).__init__(*args, **kwargs)
+
+        # Initialize UI components and layout
+        self.InitUI()
+        
+        # List to store marked text ranges
+        self.marks = []
+
+    def InitUI(self):
+        panel = wx.Panel(self)
+
+        # Text area for the editor
+        self.text_area = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_RICH2 | wx.TE_PROCESS_ENTER)
+        self.text_area.Bind(wx.EVT_KEY_UP, self.on_key_release)
+
+        # Menu bar setup
+        menu_bar = wx.MenuBar()
+
+        # File menu
+        file_menu = wx.Menu()
+        open_item = file_menu.Append(wx.ID_OPEN, '&Open\tCtrl+O', 'Open an existing document')
+        self.Bind(wx.EVT_MENU, self.OnOpen, open_item)
+
+        save_item = file_menu.Append(wx.ID_SAVE, '&Save\tCtrl+S', 'Save the document')
+        self.Bind(wx.EVT_MENU, self.OnSave, save_item)
+
+        save_as_image_item = file_menu.Append(wx.ID_ANY, 'Save As &Image', 'Save text as image')
+        self.Bind(wx.EVT_MENU, self.OnSaveAsImage, save_as_image_item)
+
+        exit_item = file_menu.Append(wx.ID_EXIT, '&Exit', 'Exit the application')
+        self.Bind(wx.EVT_MENU, self.OnExit, exit_item)
+
+        menu_bar.Append(file_menu, '&File')
+
+        # Edit menu
+        edit_menu = wx.Menu()
+        undo_item = edit_menu.Append(wx.ID_UNDO, '&Undo\tCtrl+Z', 'Undo last action')
+        self.Bind(wx.EVT_MENU, self.OnUndo, undo_item)
+
+        redo_item = edit_menu.Append(wx.ID_REDO, '&Redo\tCtrl+Y', 'Redo last undone action')
+        self.Bind(wx.EVT_MENU, self.OnRedo, redo_item)
+
+        select_all_item = edit_menu.Append(wx.ID_SELECTALL, 'Select &All\tCtrl+A', 'Select all text')
+        self.Bind(wx.EVT_MENU, self.OnSelectAll, select_all_item)
+
+        text_to_speech_item = edit_menu.Append(wx.ID_ANY, 'Text to &Speech', 'Read out the text using TTS')
+        self.Bind(wx.EVT_MENU, self.OnTextToSpeech, text_to_speech_item)
+
+        menu_bar.Append(edit_menu, '&Edit')
+
+        # Format menu for font settings
+        format_menu = wx.Menu()
+        change_font_face_item = format_menu.Append(wx.ID_ANY, 'Change &Font Face', 'Change font face')
+        self.Bind(wx.EVT_MENU, self.OnChangeFontFace, change_font_face_item)
+
+        change_font_size_item = format_menu.Append(wx.ID_ANY, 'Change Font &Size', 'Change font size')
+        self.Bind(wx.EVT_MENU, self.OnChangeFontSize, change_font_size_item)
+
+        change_font_color_item = format_menu.Append(wx.ID_ANY, 'Change Font C&olor', 'Change font color')
+        self.Bind(wx.EVT_MENU, self.OnChangeFontColor, change_font_color_item)
+
+        menu_bar.Append(format_menu, 'For&mat')
+
+        # Translation menu
+        translate_menu = wx.Menu()
+        eng_to_urdu_item = translate_menu.Append(wx.ID_ANY, 'English to &Urdu', 'Translate English text to Urdu')
+        self.Bind(wx.EVT_MENU, self.OnTranslateEnglishToUrdu, eng_to_urdu_item)
+
+        urdu_to_eng_item = translate_menu.Append(wx.ID_ANY, 'Urdu to &English', 'Translate Urdu text to English')
+        self.Bind(wx.EVT_MENU, self.OnTranslateUrduToEnglish, urdu_to_eng_item)
+
+        menu_bar.Append(translate_menu, '&Translate')
+
+        # Text direction menu
+        direction_menu = wx.Menu()
+        rtl_item = direction_menu.Append(wx.ID_ANY, 'Switch to &RTL', 'Switch to Right-to-Left typing')
+        self.Bind(wx.EVT_MENU, self.OnSwitchToRTL, rtl_item)
+
+        ltr_item = direction_menu.Append(wx.ID_ANY, 'Switch to &LTR', 'Switch to Left-to-Right typing')
+        self.Bind(wx.EVT_MENU, self.OnSwitchToLTR, ltr_item)
+
+        menu_bar.Append(direction_menu, '&Direction')
+
+        self.SetMenuBar(menu_bar)
+
+        # Layout setup
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self.text_area, 1, wx.EXPAND | wx.ALL, 5)
+        panel.SetSizer(sizer)
+
+        self.SetSize((600, 400))
+        self.SetTitle('Urdu Text Editor')
+        self.Centre()
+
+    def OnOpen(self, event):
+        """Open an existing document."""
+        with wx.FileDialog(self, "Open", wildcard="Text files (*.txt)|*.txt",
+                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as file_dialog:
+
+            if file_dialog.ShowModal() == wx.ID_CANCEL:
+                return  # User cancelled the dialog
+
+            path = file_dialog.GetPath()
+            try:
+                with open(path, 'r', encoding='utf-8') as file:
+                    self.text_area.SetValue(file.read())
+            except IOError:
+                wx.LogError(f"Cannot open file '{path}'.")
+
+    def OnSave(self, event):
+        """Save the contents of the text editor to a file."""
+        with wx.FileDialog(self, "Save As", wildcard="Text files (*.txt)|*.txt",
+                           style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
+
+            if file_dialog.ShowModal() == wx.ID_CANCEL:
+                return  # User cancelled the dialog
+
+            path = file_dialog.GetPath()
+            try:
+                with open(path, 'w', encoding='utf-8') as file:
+                    file.write(self.text_area.GetValue())
+            except IOError:
+                wx.LogError(f"Cannot save current data in file '{path}'.")
+
+    def OnSaveAsImage(self, event):
+        """Save the contents of the text editor as an image."""
+        with wx.FileDialog(self, "Save As Image", wildcard="PNG files (*.png)|*.png",
+                           style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
+
+            if file_dialog.ShowModal() == wx.ID_CANCEL:
+                return
+
+            path = file_dialog.GetPath()
+            try:
+                content = self.text_area.GetValue()
+                width, height = self.text_area.GetSize()
+
+                bitmap = wx.Bitmap(width, height)
+                dc = wx.MemoryDC(bitmap)
+                dc.SetBackground(wx.Brush(wx.WHITE))
+                dc.Clear()
+
+                font = self.text_area.GetFont()
+                dc.SetFont(font)
+                dc.SetTextForeground(self.text_area.GetForegroundColour())
+                dc.DrawText(content, 10, 10)
+
+                bitmap.SaveFile(path, wx.BITMAP_TYPE_PNG)
+
+            except Exception as e:
+                wx.LogError(f"Cannot save image: {str(e)}")
+
+    def OnExit(self, event):
+        """Exit the application."""
+        self.Close()
+
+    def OnUndo(self, event):
+        """Undo the last action."""
+        self.text_area.Undo()
+
+    def OnRedo(self, event):
+        """Redo the last undone action."""
+        self.text_area.Redo()
+
+    def OnSelectAll(self, event):
+        """Select all the text."""
+        self.text_area.SelectAll()
+
+    def OnChangeFontFace(self, event):
+        """Change the font face."""
+        font_data = wx.FontData()
+        font_data.EnableEffects(True)
+        font_data.SetInitialFont(self.text_area.GetFont())
+        font_dialog = wx.FontDialog(self, font_data)
+        if font_dialog.ShowModal() == wx.ID_OK:
+            font = font_dialog.GetFontData().GetChosenFont()
+            self.text_area.SetFont(font)
+        font_dialog.Destroy()
+
+    def OnChangeFontSize(self, event):
+        """Change the font size."""
+        size_dialog = wx.TextEntryDialog(self, 'Enter font size:', 'Font Size', '')
+        if size_dialog.ShowModal() == wx.ID_OK:
+            try:
+                size = int(size_dialog.GetValue())
+                font = self.text_area.GetFont()
+                font.SetPointSize(size)
+                self.text_area.SetFont(font)
+            except ValueError:
+                wx.MessageBox('Invalid font size entered. Please enter a number.', 'Error', wx.OK | wx.ICON_ERROR)
+        size_dialog.Destroy()
+
+    def OnChangeFontColor(self, event):
+        """Change the font color."""
+        color_dialog = wx.ColourDialog(self)
+        if color_dialog.ShowModal() == wx.ID_OK:
+            color_data = color_dialog.GetColourData()
+            color = color_data.GetColour()
+            self.text_area.SetForegroundColour(color)
+            self.text_area.Refresh()
+        color_dialog.Destroy()
+
+    def OnSwitchToRTL(self, event):
+        """Switch to Right-to-Left (RTL) typing."""
+        self.text_area.SetWindowStyleFlag(wx.TE_MULTILINE | wx.TE_RICH2 | wx.TE_RIGHT)
+
+    def OnSwitchToLTR(self, event):
+        """Switch to Left-to-Right (LTR) typing."""
+        self.text_area.SetWindowStyleFlag(wx.TE_MULTILINE | wx.TE_RICH2 | wx.TE_LEFT)
+
+    def OnTranslateEnglishToUrdu(self, event):
+        """Translate English text to Urdu."""
+        content = self.text_area.GetValue().strip()
+        if not content:
+            wx.MessageBox('The document is empty. Please type some text.', 'Translation', wx.OK | wx.ICON_INFORMATION)
+            return
+
+        try:
+            translator = Translator()
+            translated = translator.translate(content, src='en', dest='ur')
+            self.text_area.SetValue(translated.text)
+        except Exception as e:
+            wx.LogError(f"Failed to translate text: {str(e)}")
+
+    def OnTranslateUrduToEnglish(self, event):
+        """Translate Urdu text to English."""
+        content = self.text_area.GetValue().strip()
+        if not content:
+            wx.MessageBox('The document is empty. Please type some text.', 'Translation', wx.OK | wx.ICON_INFORMATION)
+            return
+
+        try:
+            translator = Translator()
+            translated = translator.translate(content, src='ur', dest='en')
+            self.text_area.SetValue(translated.text)
+        except Exception as e:
+            wx.LogError(f"Failed to translate text: {str(e)}")
+
+    def OnTextToSpeech(self, event):
+        """Convert the entire text in the editor to speech."""
+        content = self.text_area.GetValue().strip()
+        if not content:
+            wx.MessageBox('The document is empty. Please type some text.', 'Text to Speech', wx.OK | wx.ICON_INFORMATION)
+            return
+
+        try:
+            tts = gTTS(content, lang='ur')  # Use 'ur' for Urdu, 'en' for English, or dynamically detect language
+            filename = "temp.mp3"
+            tts.save(filename)
+            playsound(filename)
+            os.remove(filename)
+        except Exception as e:
+            wx.LogError(f"Failed to convert text to speech: {str(e)}")
+
+    def on_key_release(self, event):
+        """Handle key release event to trigger text-to-speech."""
+        keycode = event.GetKeyCode()
+        content = self.text_area.GetValue().strip()
+
+        if content:
+            if keycode == wx.WXK_SPACE:
+                # When space is pressed, announce the last word
+                words = content.split()
+                if words:
+                    last_word = words[-1]
+                    threading.Thread(target=self.speak_text, args=(last_word,)).start()
+            else:
+                # Announce the last typed character
+                last_char = content[-1]
+                threading.Thread(target=self.speak_text, args=(last_char,)).start()
+
+        event.Skip()  # Allow the keypress to propagate
+
+    def speak_text(self, text):
+        """Convert text to speech using Google TTS."""
+        tts = gTTS(text, lang='ur')
+        filename = "temp.mp3"
+        tts.save(filename)
+        playsound(filename)
+        os.remove(filename)
+
+if __name__ == "__main__":
+    app = wx.App(False)
+    frame = UrduTextEditor(None)
+    frame.Show()
+    app.MainLoop()
